@@ -27,10 +27,24 @@
 -mod_prio(300).
 
 -export([
-    observe_dispatch/2
+    observe_dispatch/2,
+    observe_dispatch_rewrite/3
 ]).
 
 -include_lib("zotonic.hrl").
+
+
+%% @doc Anymeta has external uris "id/123" coming in from external sites
+%%      This clashes with the 'id' dispatch rule, to be able to override the
+%%      dispatch rule we have to rewrite "id/123" requests to something we will catch
+%%      
+observe_dispatch_rewrite(#dispatch_rewrite{is_dir=_IsDir}, {Parts, Args} = Dispatch, _Context) ->
+    case Parts of
+        ["id", [C|_] = AnyId] when C >= $0, C =< $9 ->
+            {["anymetaid",AnyId], Args};
+        _ ->
+            Dispatch
+    end.
 
 
 %% @doc Map anyMeta URLs to Zotonic resources, uses a permanent redirect
@@ -39,6 +53,8 @@ observe_dispatch(#dispatch{path=Path}, Context) ->
     % index.php
     % /id/lang/slug
     % /id/123
+    % /search/123
+    % /search/123/nl
     % (...)/id.php/(uuid|id|name)
     % (...)/(article|artefact|...)-<id>-<language>.html
     % (...)/(article|artefact|...)-<id>.html
@@ -49,12 +65,25 @@ observe_dispatch(#dispatch{path=Path}, Context) ->
             redirect_rsc(m_rsc:rid(page_home, ContextQs), z_context:get_q("lang", ContextQs), ContextQs);
         [AnyId,"id.php"|_] ->
             redirect(AnyId, undefined, Context);
-        [AnyId,"id"] ->
+        [AnyId,"anymetaid"] ->
+            redirect(AnyId, undefined, Context);
+        % "id/123" will never arrive here due to the 'id' dispatch rule in mod_base
+        % [AnyId,"id"] ->
+        %     case z_utils:only_digits(AnyId) of
+        %         true -> redirect(AnyId, undefined, Context);
+        %         false -> undefined
+        %     end;
+        [[_,_] = Lang, [C|_] = AnyId, "search"] when C >= $0, C =< $9 ->
             case z_utils:only_digits(AnyId) of
-                true -> redirect(AnyId, undefined, Context);
+                true -> redirect(AnyId, Lang, Context);
                 false -> undefined
             end;
-        [Slug, [_,_] = Lang, [C|_] = AnyId] when C >= $0; C =< $9 ->
+        [[C|_] = AnyId, "search"] when C >= $0, C =< $9 ->
+            case z_utils:only_digits(AnyId) of
+                true -> redirect(AnyId, atom_to_list(z_context:language(Context)), Context);
+                false -> undefined
+            end;
+        [Slug, [_,_] = Lang, [C|_] = AnyId] when C >= $0, C =< $9 ->
             case z_utils:only_digits(AnyId) of
                 true -> redirect(AnyId, Lang, Context);
                 false -> old_anymeta_url(Slug, Context)
