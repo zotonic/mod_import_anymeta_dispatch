@@ -52,6 +52,7 @@ observe_dispatch(#dispatch{path=Path}, Context) ->
     % URIs matched: 
     % index.php
     % /id/lang/slug
+    % /id/lang/
     % /id/123
     % /search/123
     % /search/123/nl
@@ -87,6 +88,11 @@ observe_dispatch(#dispatch{path=Path}, Context) ->
             case z_utils:only_digits(AnyId) of
                 true -> redirect(AnyId, Lang, Context);
                 false -> old_anymeta_url(Slug, Context)
+            end;
+        [[_,_] = Lang, [C|_] = AnyId] when C >= $0, C =< $9 ->
+            case z_utils:only_digits(AnyId) of
+                true -> redirect(AnyId, Lang, Context);
+                false -> undefined
             end;
         [Rsc|_] ->
             old_anymeta_url(Rsc, Context);
