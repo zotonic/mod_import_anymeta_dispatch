@@ -94,6 +94,11 @@ observe_dispatch(#dispatch{path=Path}, Context) ->
                 true -> redirect(AnyId, Lang, Context);
                 false -> undefined
             end;
+        [[C|_] = AnyId] when C >= $0, C =< $9 ->
+            case z_utils:only_digits(AnyId) of
+                true -> redirect(AnyId, undefined, Context);
+                false -> undefined
+            end;
         [Rsc|_] ->
             old_anymeta_url(Rsc, Context);
         [] ->
