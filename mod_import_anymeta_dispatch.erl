@@ -28,11 +28,11 @@
 
 -export([
     observe_dispatch/2,
-    observe_dispatch_rewrite/3
+    observe_dispatch_rewrite/3,
+	observe_dispatch_host/2
 ]).
 
 -include_lib("zotonic.hrl").
-
 
 %% @doc Anymeta has external uris "id/123" coming in from external sites
 %%      This clashes with the 'id' dispatch rule, to be able to override the
@@ -46,9 +46,8 @@ observe_dispatch_rewrite(#dispatch_rewrite{is_dir=_IsDir}, {Parts, Args} = Dispa
             Dispatch
     end.
 
-
 %% @doc Map anyMeta URLs to Zotonic resources, uses a permanent redirect
-observe_dispatch(#dispatch{path=Path}, Context) ->
+observe_dispatch(#dispatch{host=Host, path=Path}, Context) ->
     % URIs matched: 
     % index.php
     % /id/lang/slug
@@ -65,9 +64,9 @@ observe_dispatch(#dispatch{path=Path}, Context) ->
             ContextQs = z_context:ensure_qs(Context),
             redirect_rsc(m_rsc:rid(page_home, ContextQs), z_context:get_q("lang", ContextQs), ContextQs);
         [AnyId,"id.php"|_] ->
-            redirect(AnyId, undefined, Context);
+            redirect(Host, AnyId, undefined, Context);
         [AnyId,"anymetaid"] ->
-            redirect(AnyId, undefined, Context);
+            redirect(Host, AnyId, undefined, Context);
         % "id/123" will never arrive here due to the 'id' dispatch rule in mod_base
         % [AnyId,"id"] ->
         %     case z_utils:only_digits(AnyId) of
@@ -76,43 +75,71 @@ observe_dispatch(#dispatch{path=Path}, Context) ->
         %     end;
         [[_,_] = Lang, [C|_] = AnyId, "search"] when C >= $0, C =< $9 ->
             case z_utils:only_digits(AnyId) of
-                true -> redirect(AnyId, Lang, Context);
+                true -> redirect(Host, AnyId, Lang, Context);
                 false -> undefined
             end;
         [[C|_] = AnyId, "search"] when C >= $0, C =< $9 ->
             case z_utils:only_digits(AnyId) of
-                true -> redirect(AnyId, atom_to_list(z_context:language(Context)), Context);
+                true -> redirect(Host, AnyId, atom_to_list(z_context:language(Context)), Context);
                 false -> undefined
             end;
         [Slug, [_,_] = Lang, [C|_] = AnyId] when C >= $0, C =< $9 ->
             case z_utils:only_digits(AnyId) of
-                true -> redirect(AnyId, Lang, Context);
-                false -> old_anymeta_url(Slug, Context)
+                true -> redirect(Host, AnyId, Lang, Context);
+                false -> old_anymeta_url(Host, Slug, Context)
             end;
         [[_,_] = Lang, [C|_] = AnyId] when C >= $0, C =< $9 ->
             case z_utils:only_digits(AnyId) of
-                true -> redirect(AnyId, Lang, Context);
+                true -> redirect(Host, AnyId, Lang, Context);
                 false -> undefined
             end;
         [[C|_] = AnyId] when C >= $0, C =< $9 ->
             case z_utils:only_digits(AnyId) of
-                true -> redirect(AnyId, undefined, Context);
+                true -> redirect(Host, AnyId, undefined, Context);
                 false -> undefined
             end;
         [Rsc|_] ->
-            old_anymeta_url(Rsc, Context);
+            old_anymeta_url(Host, Rsc, Context);
         [] ->
             undefined
     end.
 
-old_anymeta_url(Rsc, Context) ->
+%% @doc When importing several Anymeta sites into one Zotonic instance,
+%%		we also wanna catch requests belonging to old host names.
+observe_dispatch_host(#dispatch_host{host=Host, path=Path}, Context) ->
+	KnownHosts = z_depcache:memo(
+		fun() ->
+			lists:map(
+				fun({H}) -> z_convert:to_list(H) end,
+				z_db:q("select distinct host from import_anymeta;", Context)
+			)
+		end,
+		anymeta_dispatch_hosts,
+		Context
+	),
+	case lists:member(Host, KnownHosts) of
+		true ->
+			% Path is not rewritten at this point, so make sure it will be.
+			Parts = string:tokens(Path, "/"),
+			case Parts of
+				["id"|Rest] ->
+					NewPath = string:join(lists:append([["anymetaid"], Rest]), "/"),
+					observe_dispatch(#dispatch{host=Host, path=NewPath}, Context);
+				_ ->
+					observe_dispatch(#dispatch{host=Host, path=Path}, Context)
+			end;
+		false ->
+			undefined
+	end.
+
+old_anymeta_url(Host, Rsc, Context) ->
     case filename:extension(Rsc) of
         ".html" ->
             case string:tokens(filename:rootname(Rsc), "-") of
                 [_Kind,AnyId,[_,_] = Lang] ->
-                    redirect(AnyId, Lang, Context);
+                    redirect(Host, AnyId, Lang, Context);
                 [_Kind,AnyId] ->
-                    redirect(AnyId, undefined, Context);
+                    redirect(Host, AnyId, undefined, Context);
                 _ ->
                     undefined
             end;
@@ -120,9 +147,9 @@ old_anymeta_url(Rsc, Context) ->
             undefined
     end.
 
-redirect(AnyId, Lang, Context) ->
-    case z_db:q1("select rsc_id from import_anymeta where anymeta_id = $1", 
-                 [z_convert:to_integer(AnyId)], 
+redirect(Host, AnyId, Lang, Context) ->
+    case z_db:q1("select rsc_id from import_anymeta where host = $1 and anymeta_id = $2",
+                 [z_convert:to_list(Host), z_convert:to_integer(AnyId)],
                  Context)
     of
         undefined -> 
@@ -147,11 +174,10 @@ redirect_rsc(RscId, Lang, Context) ->
         undefined ->
             undefined;
         URL ->
-            {ok, #dispatch_match{
-                mod=controller_redirect,
-                mod_opts=[{url, URL}, {is_permanent, true}],
-                bindings=[]
-            }}
+            {ok, #dispatch_redirect{
+                location=URL,
+				is_permanent=true
+			}}
     end.
 
 map_language("jp") -> "ja";
