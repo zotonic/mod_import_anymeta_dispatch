@@ -55,6 +55,8 @@ observe_dispatch(#dispatch{host=Host, path=Path}, Context) ->
     % /id/123
     % /search/123
     % /search/123/nl
+	% /person/123
+	% /person/123/nl
     % (...)/id.php/(uuid|id|name)
     % (...)/(article|artefact|...)-<id>-<language>.html
     % (...)/(article|artefact|...)-<id>.html
@@ -83,6 +85,16 @@ observe_dispatch(#dispatch{host=Host, path=Path}, Context) ->
                 true -> redirect(Host, AnyId, atom_to_list(z_context:language(Context)), Context);
                 false -> undefined
             end;
+        [[_,_] = Lang, [C|_] = AnyId, "person"] when C >= $0, C =< $9 ->
+            case z_utils:only_digits(AnyId) of
+                true -> redirect(Host, AnyId, Lang, Context);
+                false -> undefined
+            end;
+        [[C|_] = AnyId, "person"] when C >= $0, C =< $9 ->
+            case z_utils:only_digits(AnyId) of
+                true -> redirect(Host, AnyId, atom_to_list(z_context:language(Context)), Context);
+                false -> undefined
+            end;	
         [Slug, [_,_] = Lang, [C|_] = AnyId] when C >= $0, C =< $9 ->
             case z_utils:only_digits(AnyId) of
                 true -> redirect(Host, AnyId, Lang, Context);
