@@ -160,15 +160,39 @@ old_anymeta_url(Host, Rsc, Context) ->
     end.
 
 redirect(Host, AnyId, Lang, Context) ->
-    case z_db:q1("select rsc_id from import_anymeta where host = $1 and anymeta_id = $2",
-                 [z_convert:to_list(Host), z_convert:to_integer(AnyId)],
-                 Context)
-    of
-        undefined -> 
+    case any_to_rsc_id(Host, AnyId, Context) of
+        undefined ->
             undefined;
         RscId when is_integer(RscId) ->
             redirect_rsc(RscId, Lang, Context)
     end.
+
+any_to_rsc_id(Host, AnyId, Context) ->
+    z_depcache:memo(
+            fun() ->
+                case z_db:q1("select rsc_id 
+                              from import_anymeta
+                              where host = $1
+                                and anymeta_id = $2
+                              limit 1",
+                             [z_convert:to_list(Host), z_convert:to_integer(AnyId)],
+                             Context)
+                of
+                    undefined -> 
+                        % Fallback for any host (hostnames could have changed after the migration)
+                        z_db:q1("select rsc_id 
+                                 from import_anymeta
+                                 where anymeta_id = $1
+                                 limit 1",
+                                [z_convert:to_integer(AnyId)],
+                                Context);
+                    RscId ->
+                        RscId
+                end
+            end,
+            {anymeta_dispatch_lookup, Host, AnyId},
+            Context).
+
 
 redirect_rsc(undefined, _Lang, _Context) ->
     undefined;
