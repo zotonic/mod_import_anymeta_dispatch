@@ -24,7 +24,7 @@
 
 -mod_title("Import Anymeta Site - Dispatch").
 -mod_description("Dispatcher for old Anymeta urls.").
--mod_prio(300).
+-mod_prio(290).
 
 -export([
     observe_dispatch/2,
