@@ -121,10 +121,15 @@ observe_dispatch(#dispatch{host=Host, path=Path}, Context) ->
 observe_dispatch_host(#dispatch_host{host=Host, path=Path}, Context) ->
 	KnownHosts = z_depcache:memo(
 		fun() ->
-			lists:map(
-				fun({H}) -> z_convert:to_list(H) end,
-				z_db:q("select distinct host from import_anymeta;", Context)
-			)
+			case z_db:table_exists(import_anymeta, Context) of
+				true ->
+					lists:map(
+						fun({H}) -> z_convert:to_list(H) end,
+						z_db:q("select distinct host from import_anymeta;", Context)
+					);
+				false ->
+					[]
+			end
 		end,
 		anymeta_dispatch_hosts,
 		Context
