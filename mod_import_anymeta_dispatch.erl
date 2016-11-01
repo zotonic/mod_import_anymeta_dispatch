@@ -5,7 +5,7 @@
 %%		This depends on mod_import_anymeta for the creation of the the database
 %%		tables.
 
-%% Copyright 2015 Marc Worrell
+%% Copyright 2015-2016 Marc Worrell
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -172,7 +172,17 @@ redirect(Host, AnyId, Lang, Context) ->
             redirect_rsc(RscId, Lang, Context)
     end.
 
+any_to_rsc_id(_Host, undefined, _Context) ->
+    undefined;
+any_to_rsc_id(Host, AnyId, Context) when is_integer(AnyId) ->
+    any_to_rsc_id_1(Host, AnyId, Context);
 any_to_rsc_id(Host, AnyId, Context) ->
+    case z_utils:only_digits(AnyId) of
+        true -> any_to_rsc_id_1(Host, AnyId, Context);
+        false -> undefined
+    end.
+
+any_to_rsc_id_1(Host, AnyId, Context) ->
     z_depcache:memo(
             fun() ->
                 case z_db:q1("select rsc_id 
@@ -183,7 +193,7 @@ any_to_rsc_id(Host, AnyId, Context) ->
                              [z_convert:to_list(Host), z_convert:to_integer(AnyId)],
                              Context)
                 of
-                    undefined -> 
+                    undefined ->
                         % Fallback for any host (hostnames could have changed after the migration)
                         z_db:q1("select rsc_id 
                                  from import_anymeta
